@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <title>Чат на WebSocket</title>
+    <style>
+        body { font-family: sans-serif; max-width: 600px; margin: 20px auto; }
+        #chat { border: 1px solid #ccc; height: 300px; overflow-y: scroll; padding: 10px; margin-bottom: 10px; }
+        .system-msg { color: gray; font-style: italic; font-size: 0.9em; }
+        .user-msg { color: black; }
+        .error-msg { color: red; }
+    </style>
+</head>
+<body>
+    <h2>Розумний Чат</h2>
+    <div id="chat"></div>
+    <input id="message" placeholder="Введіть повідомлення" autocomplete="off">
+    <button onclick="sendMessage()">Надіслати</button>
+    <button onclick="disconnect()">Відключитися</button>
+    <button onclick="requestNotificationPermission()">Увімкнути сповіщення</button>
+
+    <script>
+        let socket;
+        let clientId;
+        let disconnected = false;
+        const chatDiv = document.getElementById('chat');
+
+        // ЗАВДАННЯ 2: Запит дозволу на сповіщення
+        function requestNotificationPermission() {
+            if (Notification.permission === 'default') {
+                Notification.requestPermission();
+            }
+        }
+
+        // ЗАВДАННЯ 3: Логіка підключення та відновлення з'єднання
+        function connect() {
+            socket = new WebSocket('ws://localhost:3000');
+
+            socket.onopen = () => {
+                logToChat('Система: З’єднання з сервером встановлено', 'system-msg');
+            };
+
+            socket.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    
+                    if (data.type === 'id') {
+                        clientId = data.id;
+                    } else if (data.type === 'system') {
+                        logToChat(data.text, 'system-msg');
+                    } else if (data.type === 'message') {
+                        logToChat(data.text, 'user-msg');
+                        // ЗАВДАННЯ 2: Сповіщення, якщо користувач неактивний (вкладка згорнута)
+                        notifyIfHidden(data.text);
+                    }
+                } catch (e) {
+                    console.error("Помилка обробки даних", e);
+                }
+            };
+
+            socket.onclose = () => {
+                if (!disconnected) {
+                    logToChat('Система: З’єднання втрачено. Спроба відновлення через 3 сек...', 'error-msg');
+                    // Спробувати підключитися знову через 3 секунди
+                    setTimeout(connect, 3000);
+                }
+            };
+
+            socket.onerror = (error) => {
+                console.error('WebSocket помилка:', error);
+                socket.close(); // Це викличе onclose, який запустить реконнект
+            };
+        }
+
+        // Допоміжна функція для виводу повідомлень у HTML
+        function logToChat(text, className) {
+            const newMessage = document.createElement('div');
+            newMessage.innerText = text;
+            newMessage.className = className;
+            chatDiv.appendChild(newMessage);
+            chatDiv.scrollTop = chatDiv.scrollHeight; // Автопрокрутка вниз
+        }
+
+        // Функція відправки повідомлення
+        function sendMessage() {
+            const messageInput = document.getElementById('message');
+            const message = messageInput.value;
+            if (message && socket.readyState === WebSocket.OPEN) {
+                socket.send(message);
+                messageInput.value = '';
+            } else {
+                alert('Немає з’єднання з сервером');
+            }
+        }
+
+        // Функція відключення
+        function disconnect() {
+            if (clientId) {
+                fetch(`http://localhost:3000/disconnect?id=${clientId}`)
+                .then(response => {
+                    if (response.ok) {
+                        disconnected = true;
+                        logToChat('Ви відключились від чату', 'system-msg');
+                        document.getElementById('message').disabled = true;
+                        document.querySelector('button[onclick="sendMessage()"]').disabled = true;
+                        document.querySelector('button[onclick="disconnect()"]').disabled = true;
+                        socket.close();
+                    }
+                })
+                .catch(err => {
+                    console.error('Помилка відключення:', err);
+                });
+            }
+        }
+
+        // ЗАВДАННЯ 2: Логіка показу сповіщення
+        function notifyIfHidden(text) {
+            // document.hidden повертає true, якщо вкладка не активна
+            if (document.hidden && Notification.permission === "granted") {
+                new Notification("Нове повідомлення у чаті", {
+                    body: text,
+                    icon: "https://cdn-icons-png.flaticon.com/512/134/134914.png" // Приклад іконки
+                });
+            }
+        }
+
+        // Запуск підключення при завантаженні сторінки
+        connect();
+    </script>
+</body>
+</html>
